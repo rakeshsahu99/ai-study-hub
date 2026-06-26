@@ -51,3 +51,5 @@ __pycache__/
 .ipynb_checkpoints/
 *.egg-info/
 
+# Local database/storage
+ai-service/storage/
