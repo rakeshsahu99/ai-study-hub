@@ -5,6 +5,7 @@ from core.parser import extract_text_from_pdf, extract_text_from_docx, extract_t
 from core.chunker import chunk_parsed_documents
 from core.embedder import generate_embeddings
 from core.vector_db import VectorStore
+from core.search import hybrid_search
 
 app = FastAPI(
     title="AI Study Hub Service",
@@ -113,3 +114,19 @@ async def upload_document(file: UploadFile = File(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during indexing pipeline: {str(e)}")
+
+
+@app.get("/search", summary="Search indexed documents using Hybrid Retrieval (BM25 + Semantic)")
+async def search_documents(query: str, top_k: int = 5):
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Query string cannot be empty.")
+        
+    try:
+        results = hybrid_search(query=query, vector_store=vector_store, top_k=top_k)
+        return {
+            "query": query,
+            "results_returned": len(results),
+            "results": results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error executing hybrid search: {str(e)}")

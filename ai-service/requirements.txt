@@ -10,3 +10,6 @@ python-multipart==0.0.9
 sentence-transformers==3.0.1
 faiss-cpu==1.8.0
 numpy==1.26.4
+
+#phase 3
+rank_bm25==0.2.2
