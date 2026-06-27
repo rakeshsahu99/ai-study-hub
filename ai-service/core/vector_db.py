@@ -82,3 +82,13 @@ class VectorStore:
         self.index = faiss.read_index(self.index_path)
         with open(self.metadata_path, 'r', encoding='utf-8') as f:
             self.chunks = json.load(f)
+    def clear(self):
+        """
+        Clears the active index memory and deletes the index files on disk.
+        """
+        self.index = faiss.IndexFlatL2(self.dimension)
+        self.chunks = []
+        if os.path.exists(self.index_path):
+            os.remove(self.index_path)
+        if os.path.exists(self.metadata_path):
+            os.remove(self.metadata_path)

@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --background: #fafafa;
+  --foreground: #09090b;
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-border: rgba(228, 228, 231, 0.6);
+  --accent: #6366f1;
+  /* Indigo */
+  --accent-light: #818cf8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #030303;
+    --foreground: #f4f4f5;
+    --card-bg: rgba(9, 9, 11, 0.75);
+    --card-border: rgba(39, 39, 42, 0.6);
+    --accent: #818cf8;
+    --accent-light: #a5b4fc;
   }
 }
 
+@theme {
+  --color-bg-custom: var(--background);
+  --color-fg-custom: var(--foreground);
+  --color-card-bg: var(--card-bg);
+  --color-card-border: var(--card-border);
+  --color-accent: var(--accent);
+  --color-accent-light: var(--accent-light);
+}
+
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar for Premium Feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.45);
+}
+
+/* Glassmorphism panel styling */
+.glass-panel {
+  background-color: var(--card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+}
+
+/* Accent gradient border animation */
+@keyframes border-pulse {
+
+  0%,
+  100% {
+    border-color: var(--card-border);
+  }
+
+  50% {
+    border-color: var(--accent);
+  }
+}
+
+.animate-border-pulse {
+  animation: border-pulse 2s infinite ease-in-out;
 }

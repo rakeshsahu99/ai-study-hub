@@ -130,3 +130,48 @@ async def search_documents(query: str, top_k: int = 5):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing hybrid search: {str(e)}")
+
+@app.get("/documents", summary="List unique uploaded documents and chunk statistics")
+async def list_documents():
+    try:
+        doc_stats = {}
+        for chunk in vector_store.chunks:
+            source = chunk.get("metadata", {}).get("source", "Unknown")
+            page = chunk.get("metadata", {}).get("page", 1)
+            
+            if source not in doc_stats:
+                doc_stats[source] = {
+                    "filename": source,
+                    "total_chunks": 0,
+                    "pages": set()
+                }
+            doc_stats[source]["total_chunks"] += 1
+            doc_stats[source]["pages"].add(page)
+            
+        formatted_docs = []
+        for name, stats in doc_stats.items():
+            formatted_docs.append({
+                "filename": name,
+                "total_chunks": stats["total_chunks"],
+                "total_pages": len(stats["pages"])
+            })
+            
+        return {
+            "documents": formatted_docs,
+            "total_documents": len(formatted_docs),
+            "total_chunks": len(vector_store.chunks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch documents: {str(e)}")
+
+
+@app.post("/documents/clear", summary="Clear the local vector store index and metadata")
+async def clear_documents():
+    try:
+        vector_store.clear()
+        return {
+            "status": "success",
+            "message": "Vector store and document indexes cleared successfully."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear documents: {str(e)}")
