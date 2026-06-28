@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from '@/lib/supabaseClient';
 
 interface DocumentItem {
   filename: string;
@@ -66,12 +67,80 @@ export default function Home() {
   const [chatError, setChatError] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // --- Phase 8 Auth States ---
+  const [user, setUser] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [parserMode, setParserMode] = useState<"local" | "gemini">("local");
+
+  useEffect(() => {
+    // Fetch current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen to authentication changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail || !authPassword) return;
+
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      if (isRegistering) {
+        const { error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        alert("Registration successful! Check your email for confirmation (if enabled) or log in.");
+        setIsRegistering(false);
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Authentication failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    // Reset all local states
+    setDocuments([]);
+    setSearchResults([]);
+    setMessages([]);
+    setFlashcardsList([]);
+    setQuizQuestions([]);
+  };
+
 
 
   const loadDocuments = useCallback(async () => {
+    if (!user) return;
     try {
       setLoadingDocs(true);
-      const res = await fetch(`${API_BASE}/documents`);
+      const res = await fetch(`${API_BASE}/documents`, {
+        headers: {
+          "X-User-Id": user.id,
+        }
+      });
       if (!res.ok) throw new Error("Failed to load documents");
       const data = await res.json();
       setDocuments(data.documents || []);
@@ -83,11 +152,13 @@ export default function Home() {
     } finally {
       setLoadingDocs(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+    if (user) {
+      loadDocuments();
+    }
+  }, [user, loadDocuments]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -100,14 +171,18 @@ export default function Home() {
   };
 
   const uploadFile = async (file: File) => {
+    if (!user) return;
     setUploading(true);
     setUploadError(null);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(`${API_BASE}/upload`, {
+      const res = await fetch(`${API_BASE}/upload?mode=${parserMode}`, {
         method: "POST",
+        headers: {
+          "X-User-Id": user.id,
+        },
         body: formData,
       });
 
@@ -142,14 +217,18 @@ export default function Home() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (!query.trim() || !user) return;
 
     setSearching(true);
     setSearchError(null);
     setHasSearched(true);
 
     try {
-      const res = await fetch(`${API_BASE}/search?query=${encodeURIComponent(query)}&top_k=6`);
+      const res = await fetch(`${API_BASE}/search?query=${encodeURIComponent(query)}&top_k=6`, {
+        headers: {
+          "X-User-Id": user.id,
+        }
+      });
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.detail || "Search execution failed");
@@ -165,12 +244,16 @@ export default function Home() {
   };
 
   const handleClearIndex = async () => {
+    if (!user) return;
     if (!confirm("Are you sure you want to clear the vector index? All document chunks will be deleted.")) {
       return;
     }
     try {
       const res = await fetch(`${API_BASE}/documents/clear`, {
         method: "POST",
+        headers: {
+          "X-User-Id": user.id,
+        }
       });
       if (!res.ok) throw new Error("Failed to clear index");
       setSearchResults([]);
@@ -203,6 +286,7 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-User-Id": user.id,
         },
         body: JSON.stringify({
           message: userMessageText,
@@ -246,10 +330,12 @@ export default function Home() {
     setQuizCompleted(false);
 
     try {
+      if (!user) return;
       const res = await fetch(`${API_BASE}/study-tools/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-User-Id": user.id,
         },
         body: JSON.stringify({
           type: studyToolType,
@@ -314,6 +400,74 @@ export default function Home() {
     return Math.min(Math.max(percent, 10), 100);
   };
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-bg-custom text-fg-custom flex items-center justify-center p-4">
+        <div className="w-full max-w-md p-8 glass-panel border border-card-border rounded-3xl shadow-xl flex flex-col gap-6">
+          <div className="text-center flex flex-col gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-accent to-purple-500 flex items-center justify-center text-white font-bold text-xl mx-auto shadow-md">
+              A
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight mt-2">AI Study Hub</h1>
+            <p className="text-sm text-neutral-500">Sign in to sync your library and study tools.</p>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Email Address</label>
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 bg-neutral-500/5 hover:bg-neutral-500/10 focus:bg-transparent rounded-xl border border-card-border focus:border-accent focus:outline-none transition-all text-sm"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Password</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+                className="w-full px-4 py-3 bg-neutral-500/5 hover:bg-neutral-500/10 focus:bg-transparent rounded-xl border border-card-border focus:border-accent focus:outline-none transition-all text-sm"
+              />
+            </div>
+
+            {authError && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/15 text-xs text-red-500 text-center font-medium">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full py-3 rounded-xl bg-accent hover:bg-accent-light text-white font-semibold shadow-md transition-all active:scale-[0.98] disabled:opacity-50 mt-2 text-sm flex items-center justify-center gap-2"
+            >
+              {authLoading ? "Processing..." : isRegistering ? "Register Account" : "Sign In"}
+            </button>
+          </form>
+
+          <div className="text-center text-xs font-medium border-t border-card-border pt-4">
+            <button
+              onClick={() => {
+                setIsRegistering(!isRegistering);
+                setAuthError(null);
+              }}
+              className="text-accent hover:underline focus:outline-none"
+            >
+              {isRegistering ? "Already have an account? Sign In" : "New to Study Hub? Create an account"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-bg-custom text-fg-custom flex flex-col transition-colors duration-300">
       <header className="sticky top-0 z-40 w-full glass-panel border-b py-4 px-6 md:px-12 flex justify-between items-center">
@@ -327,26 +481,39 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-medium">
-          <span className="text-neutral-500 dark:text-neutral-400">Service:</span>
-          {backendOnline === "checking" && (
-            <span className="flex items-center gap-1.5 text-yellow-500">
-              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse" />
-              Checking...
-            </span>
-          )}
-          {backendOnline === "online" && (
-            <span className="flex items-center gap-1.5 text-emerald-500">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              Online
-            </span>
-          )}
-          {backendOnline === "offline" && (
-            <span className="flex items-center gap-1.5 text-red-500">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping absolute duration-1000" />
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 relative" />
-              Offline
-            </span>
+        <div className="flex items-center gap-4 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <span className="text-neutral-500 dark:text-neutral-400">Service:</span>
+            {backendOnline === "checking" && (
+              <span className="flex items-center gap-1.5 text-yellow-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse" />
+                Checking...
+              </span>
+            )}
+            {backendOnline === "online" && (
+              <span className="flex items-center gap-1.5 text-emerald-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                Online
+              </span>
+            )}
+            {backendOnline === "offline" && (
+              <span className="flex items-center gap-1.5 text-red-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping absolute duration-1000" />
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 relative" />
+                Offline
+              </span>
+            )}
+          </div>
+          {user && (
+            <div className="flex items-center gap-3 border-l border-card-border pl-4">
+              <span className="text-neutral-500 dark:text-neutral-400 hidden sm:inline">{user.email}</span>
+              <button
+                onClick={handleSignOut}
+                className="px-3 py-1.5 rounded-lg border border-card-border hover:bg-red-500/10 hover:text-red-500 font-semibold transition-all active:scale-[0.97]"
+              >
+                Sign Out
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -359,6 +526,33 @@ export default function Home() {
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Document Hub</h2>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">Index study resources into the vector database.</p>
+            </div>
+
+            {/* Ingestion Engine Mode Selector */}
+            <div className="flex flex-col gap-1.5 bg-neutral-500/5 p-3 rounded-xl border border-card-border">
+              <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Ingestion Mode</label>
+              <div className="flex gap-2 mt-1">
+                <button
+                  onClick={() => setParserMode("local")}
+                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    parserMode === "local"
+                      ? "bg-accent border-accent text-white"
+                      : "bg-transparent border-card-border text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Fast (Local)
+                </button>
+                <button
+                  onClick={() => setParserMode("gemini")}
+                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    parserMode === "gemini"
+                      ? "bg-accent border-accent text-white"
+                      : "bg-transparent border-card-border text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Smart (Gemini RAG)
+                </button>
+              </div>
             </div>
 
             <div
@@ -386,7 +580,11 @@ export default function Home() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    <span className="text-sm text-neutral-600 dark:text-neutral-300 font-medium">Extracting & Chunking...</span>
+                    <span className="text-sm text-neutral-600 dark:text-neutral-300 font-medium">
+                      {parserMode === "gemini" 
+                        ? "Performing Gemini Layout Analysis..." 
+                        : "Extracting & Chunking locally..."}
+                    </span>
                   </div>
                 ) : (
                   <>
