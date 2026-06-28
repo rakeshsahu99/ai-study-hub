@@ -13,3 +13,7 @@ numpy==1.26.4
 
 #phase 3
 rank_bm25==0.2.2
+
+#phase 5 LLM additions
+google-genai
+python-dotenv

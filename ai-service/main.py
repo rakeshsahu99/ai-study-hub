@@ -6,6 +6,8 @@ from core.chunker import chunk_parsed_documents
 from core.embedder import generate_embeddings
 from core.vector_db import VectorStore
 from core.search import hybrid_search
+from core.generator import generate_answer
+
 
 app = FastAPI(
     title="AI Study Hub Service",
@@ -175,3 +177,30 @@ async def clear_documents():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to clear documents: {str(e)}")
+
+@app.get("/query", summary="Query the RAG pipeline (Retrieval + Generation)")
+async def query_rag(query: str, top_k: int = 5):
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Query string cannot be empty.")
+        
+    try:
+        # 1. Retrieve the top relevant chunks using the existing hybrid search
+        retrieved_chunks = hybrid_search(query=query, vector_store=vector_store, top_k=top_k)
+        
+        if not retrieved_chunks:
+            return {
+                "query": query,
+                "answer": "No relevant document chunks found. Please upload learning materials first.",
+                "sources": []
+            }
+            
+        # 2. Generate answer based on these chunks
+        result = generate_answer(query, retrieved_chunks)
+        
+        return {
+            "query": query,
+            "answer": result["answer"],
+            "sources": result["sources"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RAG pipeline error: {str(e)}")
