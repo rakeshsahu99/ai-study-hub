@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 interface DocumentItem {
   filename: string;
@@ -15,6 +15,12 @@ interface SearchResult {
     page: number;
   };
   rrf_score: number;
+}
+
+interface ChatMessage {
+  role: "user" | "model";
+  content: string;
+  sources?: any[];
 }
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -37,11 +43,13 @@ export default function Home() {
   const [backendOnline, setBackendOnline] = useState<"checking" | "online" | "offline">("checking");
 
   const [activeTab, setActiveTab] = useState<"search" | "chat">("search");
+
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatQuery, setChatQuery] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatAnswer, setChatAnswer] = useState<string | null>(null);
-  const [chatSources, setChatSources] = useState<any[]>([]);
   const [chatError, setChatError] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
 
 
   const loadDocuments = useCallback(async () => {
@@ -160,27 +168,59 @@ export default function Home() {
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatQuery.trim()) return;
-
-    setChatLoading(true);
+    if (!chatQuery.trim() || chatLoading) return;
+    const userMessageText = chatQuery.trim();
+    setChatQuery("");
     setChatError(null);
-    setChatAnswer(null);
-    setChatSources([]);
-
+    setChatLoading(true);
+    // 1. Add current user message to message thread
+    const newUserMessage: ChatMessage = { role: "user", content: userMessageText };
+    const updatedHistory = [...messages, newUserMessage];
+    setMessages(updatedHistory);
     try {
-      const res = await fetch(`${API_BASE}/query?query=${encodeURIComponent(chatQuery)}`);
+      // 2. Map history to API payload format
+      const formattedHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: userMessageText,
+          history: formattedHistory,
+        }),
+      });
       if (!res.ok) {
         throw new Error("Failed to get answer from AI Assistant");
       }
       const data = await res.json();
-      setChatAnswer(data.answer);
-      setChatSources(data.sources || []);
+      // 3. Append assistant response containing sources
+      const aiResponse: ChatMessage = {
+        role: "model",
+        content: data.answer,
+        sources: data.sources || [],
+      };
+      setMessages((prev) => [...prev, aiResponse]);
     } catch (err: any) {
       setChatError(err.message || "Something went wrong.");
     } finally {
       setChatLoading(false);
     }
   };
+
+  const handleClearChat = () => {
+    setMessages([]);
+    setChatError(null);
+  };
+  // Auto-scroll chat window when new messages are added
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, chatLoading]);
 
   const getProgressWidth = (rrfScore: number) => {
     const minVal = 0.01;
@@ -348,26 +388,24 @@ export default function Home() {
         {/* Retrieval Search & AI Assistant Right Panel */}
         <section className="lg:col-span-8 flex flex-col gap-6">
           <div className="rounded-2xl p-6 glass-panel shadow-sm flex flex-col gap-6">
-            
+
             {/* Tab Swapper */}
             <div className="flex border-b border-card-border pb-4 gap-6">
               <button
                 onClick={() => setActiveTab("search")}
-                className={`text-sm font-semibold pb-2 border-b-2 transition-all ${
-                  activeTab === "search"
-                    ? "border-accent text-accent"
-                    : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-                }`}
+                className={`text-sm font-semibold pb-2 border-b-2 transition-all ${activeTab === "search"
+                  ? "border-accent text-accent"
+                  : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  }`}
               >
                 Search Engine
               </button>
               <button
                 onClick={() => setActiveTab("chat")}
-                className={`text-sm font-semibold pb-2 border-b-2 transition-all ${
-                  activeTab === "chat"
-                    ? "border-accent text-accent"
-                    : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-                }`}
+                className={`text-sm font-semibold pb-2 border-b-2 transition-all ${activeTab === "chat"
+                  ? "border-accent text-accent"
+                  : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  }`}
               >
                 AI Study Assistant
               </button>
@@ -494,24 +532,121 @@ export default function Home() {
             ) : (
               /* --- AI Q&A Study Assistant Content --- */
               <>
-                <div>
-                  <h2 className="text-lg font-semibold tracking-tight">AI Study Assistant</h2>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400">Ask questions and get answers grounded entirely in your uploaded course materials using Gemini.</p>
+                <div className="flex justify-between items-center pb-2 border-b border-card-border">
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-tight">AI Study Companion</h2>
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">Have a continuous conversation grounded in your uploaded materials.</p>
+                  </div>
+                  {messages.length > 0 && (
+                    <button
+                      onClick={handleClearChat}
+                      className="px-3.5 py-1.5 rounded-xl border border-card-border hover:bg-red-500/10 text-xs font-semibold text-neutral-500 hover:text-red-500 dark:hover:text-red-400 transition-all active:scale-[0.98]"
+                    >
+                      Clear Chat
+                    </button>
+                  )}
                 </div>
 
+                {/* Message History Thread */}
+                <div className="flex-1 min-h-[350px] max-h-[500px] overflow-y-auto border border-card-border rounded-2xl p-4 bg-neutral-500/5 flex flex-col gap-4 shadow-inner">
+                  {messages.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center py-16">
+                      <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-accent mb-4">
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">AI Assistant Ready</h3>
+                      <p className="text-xs text-neutral-500 mt-1 max-w-xs px-4">Ask a question to have the LLM analyze your study corpus and discuss concepts.</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-4">
+                      {messages.map((msg, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex flex-col gap-1.5 max-w-[85%] ${
+                            msg.role === "user" ? "self-end items-end" : "self-start items-start"
+                          }`}
+                        >
+                          <div className="text-[10px] text-neutral-400 font-semibold px-2 uppercase tracking-wider">
+                            {msg.role === "user" ? "You" : "Study Companion"}
+                          </div>
+                          
+                          {/* Chat Bubble */}
+                          <div
+                            className={`p-4 rounded-2xl text-sm leading-relaxed ${
+                              msg.role === "user"
+                                ? "bg-accent text-white rounded-tr-none shadow-sm shadow-indigo-500/10"
+                                : "bg-neutral-500/10 dark:bg-zinc-900/60 border border-card-border rounded-tl-none text-neutral-800 dark:text-neutral-100"
+                            }`}
+                          >
+                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                          </div>
+
+                          {/* Citations block for AI messages */}
+                          {msg.role === "model" && msg.sources && msg.sources.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1 px-1">
+                              <span className="text-[9px] text-neutral-400 font-bold uppercase tracking-wider self-center mr-1">
+                                Context:
+                              </span>
+                              {msg.sources.map((src, srcIdx) => (
+                                <button
+                                  key={srcIdx}
+                                  onClick={() => setSelectedChunk({
+                                    text: src.snippet,
+                                    metadata: { source: src.source, page: src.page },
+                                    rrf_score: 1.0
+                                  })}
+                                  className="px-2 py-0.5 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-[10px] text-accent font-medium border border-accent/15 transition-all truncate max-w-[150px]"
+                                  title={`${src.source} - Page ${src.page}`}
+                                >
+                                  {src.source} (p.{src.page})
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      
+                      {/* Typing indicator placeholder */}
+                      {chatLoading && (
+                        <div className="flex flex-col gap-1.5 max-w-[85%] self-start items-start animate-pulse">
+                          <div className="text-[10px] text-neutral-400 font-semibold px-2 uppercase tracking-wider">
+                            Companion is typing
+                          </div>
+                          <div className="p-4 rounded-2xl rounded-tl-none bg-neutral-500/10 dark:bg-zinc-900/40 border border-card-border flex flex-col gap-2 w-48">
+                            <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-full" />
+                            <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-5/6" />
+                            <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-2/3" />
+                          </div>
+                        </div>
+                      )}
+
+                      {chatError && (
+                        <div className="text-center py-3 px-4 border border-red-500/10 rounded-xl bg-red-500/5 text-xs text-red-500 font-semibold self-center max-w-[90%]">
+                          {chatError}
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Chat Submit Form */}
                 <form onSubmit={handleChatSubmit} className="flex gap-2">
                   <div className="relative flex-1">
                     <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-neutral-400">
                       <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21l-.813-5.096L3 15l5.096-.813L9 9l.813 5.187L15 15l-5.187.904zM18 10.5l-.75 2.25L15 13.5l2.25.75.75 2.25.75-2.25L21 13.5l-2.25-.75-.75-2.25z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                       </svg>
                     </span>
                     <input
                       type="text"
-                      placeholder="Ask a question about the documents (e.g., 'What are memory allocation methods?')..."
+                      placeholder={chatLoading ? "Assistant is formulating an answer..." : "Ask a follow-up about the study materials..."}
                       value={chatQuery}
                       onChange={(e) => setChatQuery(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-neutral-500/5 hover:bg-neutral-500/10 focus:bg-transparent rounded-xl border border-card-border focus:border-accent focus:outline-none transition-all duration-200 text-sm placeholder-neutral-500"
+                      disabled={chatLoading}
+                      className="w-full pl-11 pr-4 py-3 bg-neutral-500/5 hover:bg-neutral-500/10 focus:bg-transparent rounded-xl border border-card-border focus:border-accent focus:outline-none transition-all duration-200 text-sm placeholder-neutral-500 disabled:opacity-50"
                     />
                   </div>
                   <button
@@ -519,83 +654,9 @@ export default function Home() {
                     disabled={chatLoading || !chatQuery.trim()}
                     className="px-5 py-3 rounded-xl bg-accent hover:bg-accent-light text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2"
                   >
-                    {chatLoading && (
-                      <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                    )}
-                    {chatLoading ? "Thinking..." : "Ask AI"}
+                    Send
                   </button>
                 </form>
-
-                <div className="flex flex-col gap-4">
-                  {chatLoading ? (
-                    <div className="p-6 border border-card-border rounded-xl bg-neutral-500/5 flex flex-col gap-3 animate-pulse">
-                      <div className="h-4 bg-neutral-200 dark:bg-neutral-800 rounded w-1/4" />
-                      <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-full" />
-                      <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-full" />
-                      <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-2/3" />
-                    </div>
-                  ) : chatError ? (
-                    <div className="text-center py-12 border border-red-500/10 rounded-xl bg-red-500/5">
-                      <p className="text-sm font-semibold text-red-500">{chatError}</p>
-                      <p className="text-xs text-neutral-500 mt-1">Make sure you set GEMINI_API_KEY and the backend is running.</p>
-                    </div>
-                  ) : chatAnswer ? (
-                    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <div className="p-6 rounded-xl border border-card-border bg-neutral-500/5 shadow-inner">
-                        <div className="flex items-center gap-2 mb-3 text-xs text-accent font-bold tracking-wider uppercase">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                          </svg>
-                          AI Generated Response
-                        </div>
-                        <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-200 whitespace-pre-wrap">
-                          {chatAnswer}
-                        </p>
-                      </div>
-
-                      {chatSources.length > 0 && (
-                        <div className="flex flex-col gap-3">
-                          <h4 className="text-xs font-bold text-neutral-500 tracking-wider uppercase">Context Used For Answer</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {chatSources.map((source, idx) => (
-                              <div
-                                key={idx}
-                                onClick={() => setSelectedChunk({
-                                  text: source.snippet,
-                                  metadata: { source: source.source, page: source.page },
-                                  rrf_score: 1.0
-                                })}
-                                className="p-4 border border-card-border rounded-xl bg-neutral-500/5 hover:bg-neutral-500/10 cursor-pointer transition-all duration-200 text-xs flex flex-col gap-1.5 group relative overflow-hidden"
-                              >
-                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent/0 group-hover:bg-accent transition-colors" />
-                                <div className="flex justify-between items-center font-semibold text-neutral-700 dark:text-neutral-300">
-                                  <span className="truncate max-w-[150px]">{source.source}</span>
-                                  <span className="text-[10px] text-accent font-bold shrink-0">Page {source.page}</span>
-                                </div>
-                                <p className="text-[11px] text-neutral-500 dark:text-neutral-400 line-clamp-2 italic leading-relaxed">
-                                  "{source.snippet}"
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center py-20 border border-dashed border-card-border rounded-2xl bg-neutral-500/5 flex flex-col items-center justify-center">
-                      <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-accent mb-4">
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
-                      </div>
-                      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">AI Assistant Ready</h3>
-                      <p className="text-xs text-neutral-500 mt-1 max-w-xs px-4">Ask a question above to have the LLM analyze your study corpus and draft structured explanations.</p>
-                    </div>
-                  )}
-                </div>
               </>
             )}
           </div>

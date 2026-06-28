@@ -6,7 +6,16 @@ from core.chunker import chunk_parsed_documents
 from core.embedder import generate_embeddings
 from core.vector_db import VectorStore
 from core.search import hybrid_search
-from core.generator import generate_answer
+from core.generator import generate_answer, contextualize_query, generate_conversational_answer
+from pydantic import BaseModel
+from typing import List, Dict
+
+class ChatMessagePayload(BaseModel):
+    role: str
+    content: str
+class ChatRequest(BaseModel):
+    message: str
+    history: List[ChatMessagePayload]
 
 
 app = FastAPI(
@@ -204,3 +213,34 @@ async def query_rag(query: str, top_k: int = 5):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"RAG pipeline error: {str(e)}")
+
+# 6. Conversational Endpoints
+
+@app.post("/chat", summary="Conversational Multi-Turn RAG pipeline")
+async def chat_rag(payload: ChatRequest, top_k: int = 5):
+    query = payload.message
+    
+    # Convert list of Pydantic models to list of standard dictionaries
+    history = [{"role": msg.role, "content": msg.content} for msg in payload.history]
+    
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+        
+    try:
+        # 1. Rephrase the query if a context history exists
+        standalone_query = contextualize_query(query, history)
+        
+        # 2. Retrieve top matching chunks using the standalone query
+        retrieved_chunks = hybrid_search(query=standalone_query, vector_store=vector_store, top_k=top_k)
+        
+        # 3. Generate answer grounded in context and conversational history
+        result = generate_conversational_answer(query, history, retrieved_chunks)
+        
+        return {
+            "query": query,
+            "standalone_query": standalone_query,
+            "answer": result["answer"],
+            "sources": result["sources"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Conversational RAG pipeline error: {str(e)}")
