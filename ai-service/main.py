@@ -6,7 +6,7 @@ from core.chunker import chunk_parsed_documents
 from core.embedder import generate_embeddings
 from core.vector_db import VectorStore
 from core.search import hybrid_search
-from core.generator import generate_answer, contextualize_query, generate_conversational_answer
+from core.generator import generate_answer, contextualize_query, generate_conversational_answer, generate_study_materials
 from pydantic import BaseModel
 from typing import List, Dict
 
@@ -244,3 +244,43 @@ async def chat_rag(payload: ChatRequest, top_k: int = 5):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Conversational RAG pipeline error: {str(e)}")
+
+
+# --- Phase 7 Study Tools Models & Endpoints ---
+
+class StudyToolsRequest(BaseModel):
+    type: str  # "flashcards" | "quiz"
+    filename: str = "all"  # "all" or specific indexed filename
+
+@app.post("/study-tools/generate", summary="Generate structured study flashcards or quizzes")
+async def generate_tools_endpoint(payload: StudyToolsRequest):
+    material_type = payload.type.lower()
+    filename = payload.filename
+    
+    if material_type not in ["flashcards", "quiz"]:
+        raise HTTPException(status_code=400, detail="Invalid tool type. Choose 'flashcards' or 'quiz'.")
+        
+    if not vector_store.chunks:
+        raise HTTPException(status_code=400, detail="No documents indexed. Please upload files in the Document Hub first.")
+        
+    # 1. Filter chunks by filename or load all
+    if filename and filename != "all":
+        chunks = [c for c in vector_store.chunks if c.get("metadata", {}).get("source") == filename]
+    else:
+        chunks = vector_store.chunks
+        
+    if not chunks:
+        raise HTTPException(status_code=404, detail="No indexed chunks found matching your request.")
+        
+    # 2. Select a representative sample of up to 10 chunks to avoid prompt limit
+    sample_size = min(len(chunks), 10)
+    selected_chunks = chunks[:sample_size]
+    
+    try:
+        # 3. Call the generator and return results
+        result = generate_study_materials(material_type, selected_chunks)
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Study Tool Generation Error: {str(e)}")

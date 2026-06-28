@@ -2,6 +2,8 @@ import os
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from typing import List
 
 # Load key from .env file
 load_dotenv()
@@ -202,3 +204,85 @@ Answer:
             "answer": f"Conversational LLM generation failed: {str(e)}",
             "sources": []
         }
+
+# --- Phase 7 Study Tools Schemas ---
+
+class Flashcard(BaseModel):
+    front: str = Field(description="A key question, concept, or term to test the user.")
+    back: str = Field(description="The explanation, answer, or definition corresponding to the front.")
+
+class FlashcardList(BaseModel):
+    flashcards: List[Flashcard]
+
+class QuizQuestion(BaseModel):
+    question: str = Field(description="A multiple-choice question testing knowledge of the context.")
+    options: List[str] = Field(description="Exactly 4 distinct plausible options.")
+    correct_idx: int = Field(description="The correct option index (0 to 3).")
+    explanation: str = Field(description="Short rationale explanation why correct_idx is the correct answer.")
+
+class QuizList(BaseModel):
+    questions: List[QuizQuestion]
+
+
+def generate_study_materials(material_type: str, retrieved_chunks: list) -> dict:
+    """
+    Formulates a prompt with context and requests Gemini to output a structured 
+    JSON response corresponding to Flashcards or Quizzes.
+    """
+    if not client:
+        return {"error": "Error: GEMINI_API_KEY is not configured."}
+        
+    if not retrieved_chunks:
+        return {"error": "No indexed content chunks found. Please upload documents first."}
+        
+    # Extract raw text from the context chunks
+    context_blocks = []
+    for idx, chunk in enumerate(retrieved_chunks, 1):
+        text = chunk.get("text", "")
+        context_blocks.append(text)
+    context_str = "\n\n".join(context_blocks)
+    
+    # Define generation settings based on material type
+    if material_type == "flashcards":
+        response_schema = FlashcardList
+        system_instruction = (
+            "You are an expert tutor. Your task is to extract exactly 5 educational flashcards from the provided document context. "
+            "Formulate challenging questions/terms on the front, and deep comprehensive explanations on the back. "
+            "Use ONLY the facts in the provided context. Do NOT hallucinate external facts."
+        )
+        user_prompt = f"""
+Based on the following document context, generate exactly 5 flashcards for study.
+
+DOCUMENT CONTEXT:
+{context_str}
+"""
+    else:  # quiz
+        response_schema = QuizList
+        system_instruction = (
+            "You are an expert tutor. Your task is to generate a 5-question multiple-choice quiz based on the provided document context. "
+            "Ensure questions test deep understanding. Provide exactly 4 options per question, label the correct index (0-3), "
+            "and write a short, clear explanation explaining why the option is correct. Use ONLY the provided context."
+        )
+        user_prompt = f"""
+Based on the following document context, generate a 5-question multiple-choice quiz.
+
+DOCUMENT CONTEXT:
+{context_str}
+"""
+
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=response_schema,
+                temperature=0.3,
+            ),
+        )
+        import json
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Error generating study materials: {e}")
+        return {"error": f"Failed to generate study materials: {str(e)}"}
