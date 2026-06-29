@@ -19,4 +19,4 @@ google-genai
 python-dotenv
 
 # Phase 8 Cloud Database & Supabase
-supabase==2.5.1
+supabase>=2.31.0
