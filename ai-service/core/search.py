@@ -1,6 +1,6 @@
 import re
 from typing import List, Dict, Any
-from sentence_transformers import CrossEncoder
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 # Lazy load CrossEncoder model to avoid slow FastAPI startup times
 rerank_model = None
@@ -11,8 +11,8 @@ def clean_tokenize(text: str) -> List[str]:
 def get_reranker():
     global rerank_model
     if rerank_model is None:
-        # Downloads a lightweight MS-MARCO model (~80MB) during the first run
-        rerank_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        # Load the ONNX quantized ms-marco-MiniLM-L-6-v2 cross encoder (PyTorch-free)
+        rerank_model = TextCrossEncoder(model_name="Xenova/ms-marco-MiniLM-L-6-v2")
     return rerank_model
 
 def rerank_documents(query: str, retrieved_chunks: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
@@ -26,16 +26,16 @@ def rerank_documents(query: str, retrieved_chunks: List[Dict[str, Any]], top_k: 
     try:
         model = get_reranker()
         
-        # 1. Prepare pairs for cross-encoder matching
-        pairs = [(query, chunk.get("text", "")) for chunk in retrieved_chunks]
+        # Prepare list of text contents to rerank
+        documents = [chunk.get("text", "") for chunk in retrieved_chunks]
         
-        # 2. Predict relevance scores (higher is better)
-        scores = model.predict(pairs)
+        # Rerank returns an iterable of floats (scores corresponding to each index)
+        scores = list(model.rerank(query, documents))
         
-        # 3. Zip scores with original chunks and sort descending
+        # Zip scores with original chunks and sort descending
         scored_chunks = []
-        for chunk, score in zip(retrieved_chunks, scores):
-            chunk_copy = dict(chunk)
+        for idx, score in enumerate(scores):
+            chunk_copy = dict(retrieved_chunks[idx])
             chunk_copy["rerank_score"] = float(score)
             scored_chunks.append(chunk_copy)
             

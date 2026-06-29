@@ -20,9 +20,9 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the SentenceTransformer model to cache it inside the Docker image
-# This ensures that startup is instant and doesn't download the model dynamically in production.
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+# Pre-download the FastEmbed models (both embedding and cross-encoder) to cache them inside the Docker image
+# This ensures that startup is instant and doesn't download the models dynamically in production.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2'); from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
 
 # Copy the rest of the application code into the container
 COPY . .

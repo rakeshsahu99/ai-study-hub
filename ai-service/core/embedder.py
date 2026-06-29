@@ -1,10 +1,10 @@
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from typing import List
 
-# Initialize the model globally to avoid loading it repeatedly on each request
-# 'all-MiniLM-L6-v2' maps sentences/paragraphs to 384-dimensional dense vector space
-# It is extremely fast, lightweight (~80MB), and runs 100% locally with zero API costs.
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Initialize fastembed TextEmbedding with the same 'all-MiniLM-L6-v2' model
+# This runs quantized on ONNX runtime under the hood, consuming minimal RAM (< 100MB)
+# and avoiding PyTorch framework initialization.
+model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
     """
@@ -13,8 +13,8 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
     if not texts:
         return []
     
-    # Generate numerical vectors. convert_to_numpy returns matrices for performance
-    embeddings_np = model.encode(texts, convert_to_numpy=True)
+    # Generate embeddings. fastembed's model.embed returns a generator yielding numpy arrays.
+    embeddings_generator = model.embed(texts)
     
-    # Convert numpy array back to list of floats for easy JSON serialization
-    return embeddings_np.tolist()
+    # Convert the generator results to a list of lists of floats
+    return [emb.tolist() for emb in embeddings_generator]
