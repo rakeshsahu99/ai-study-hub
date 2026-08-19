@@ -36,7 +36,9 @@ def rerank_documents(query: str, retrieved_chunks: List[Dict[str, Any]], top_k: 
         scored_chunks = []
         for idx, score in enumerate(scores):
             chunk_copy = dict(retrieved_chunks[idx])
-            chunk_copy["rerank_score"] = float(score)
+            score_val = float(score)
+            chunk_copy["rerank_score"] = score_val
+            chunk_copy["rrf_score"] = score_val
             scored_chunks.append(chunk_copy)
             
         scored_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
@@ -44,4 +46,7 @@ def rerank_documents(query: str, retrieved_chunks: List[Dict[str, Any]], top_k: 
         
     except Exception as e:
         print(f"Error during Cross-Encoder re-ranking: {e}. Falling back to default retrieval.")
+        for chunk in retrieved_chunks:
+            if "rrf_score" not in chunk:
+                chunk["rrf_score"] = float(chunk.get("similarity", 0.0) or 0.0)
         return retrieved_chunks[:top_k]

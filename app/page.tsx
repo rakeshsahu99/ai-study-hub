@@ -15,8 +15,16 @@ interface SearchResult {
     source: string;
     page: number;
   };
-  rrf_score: number;
+  rrf_score?: number;
+  rerank_score?: number;
+  similarity?: number;
+  score?: number;
 }
+
+const getResultScore = (result?: SearchResult | null): number => {
+  if (!result) return 0;
+  return result.rrf_score ?? result.rerank_score ?? result.similarity ?? result.score ?? 0;
+};
 
 interface ChatMessage {
   role: "user" | "model";
@@ -393,10 +401,11 @@ export default function Home() {
     }
   }, [messages, chatLoading]);
 
-  const getProgressWidth = (rrfScore: number) => {
+  const getProgressWidth = (rrfScore?: number) => {
+    const score = rrfScore ?? 0;
     const minVal = 0.01;
     const maxVal = 0.033;
-    const percent = ((rrfScore - minVal) / (maxVal - minVal)) * 100;
+    const percent = ((score - minVal) / (maxVal - minVal)) * 100;
     return Math.min(Math.max(percent, 10), 100);
   };
 
@@ -800,12 +809,12 @@ export default function Home() {
 
                               <div className="flex flex-col items-end gap-1 shrink-0">
                                 <span className="text-[10px] font-semibold text-neutral-500">
-                                  RRF: {result.rrf_score.toFixed(4)}
+                                  RRF: {getResultScore(result).toFixed(4)}
                                 </span>
                                 <div className="w-16 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-accent rounded-full"
-                                    style={{ width: `${getProgressWidth(result.rrf_score)}%` }}
+                                    style={{ width: `${getProgressWidth(getResultScore(result))}%` }}
                                   />
                                 </div>
                               </div>
@@ -1230,7 +1239,7 @@ export default function Home() {
                                 : "Good Effort! 👍"}
                           </h3>
                           <p className="text-xs text-neutral-500 mt-1 px-4 leading-relaxed">
-                            You answered {((quizScore / quizQuestions.length) * 100).toFixed(0)}% of the questions correctly based on your study material.
+                            You answered {quizQuestions.length > 0 ? ((quizScore / quizQuestions.length) * 100).toFixed(0) : 0}% of the questions correctly based on your study material.
                           </p>
                         </div>
                         <div className="flex gap-3 w-full">
@@ -1276,7 +1285,7 @@ export default function Home() {
                 <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400 mt-1">
                   <span>Page {selectedChunk.metadata.page}</span>
                   <span>•</span>
-                  <span>RRF fusion score: {selectedChunk.rrf_score.toFixed(6)}</span>
+                  <span>RRF fusion score: {getResultScore(selectedChunk).toFixed(6)}</span>
                 </div>
               </div>
 
